@@ -28,10 +28,8 @@ export default function DownloadPanel() {
   // Format file size helper
   const formatFileSize = (bytes) => {
     if (!bytes || bytes === 0) return "";
-
     const mb = bytes / (1024 * 1024);
     const gb = bytes / (1024 * 1024 * 1024);
-
     if (gb >= 1) {
       return `${gb.toFixed(2)} GB`;
     } else if (mb >= 1) {
@@ -53,7 +51,6 @@ export default function DownloadPanel() {
 
     try {
       const data = await getFormats(url);
-
       removeToast(loadingToastId);
 
       if (data.error) {
@@ -70,7 +67,6 @@ export default function DownloadPanel() {
 
       const recommended = getRecommendedQuality(data.video_formats);
       setRecommendedQuality(recommended);
-
       setVideoInfo(data);
       setShowQualitySelector(true);
       showToast("Video loaded successfully!", "success");
@@ -90,12 +86,10 @@ export default function DownloadPanel() {
 
   const getRecommendedQuality = (formats) => {
     const qualityPriority = ["8K", "4K", "2K", "1080p", "720p", "480p", "360p", "240p", "144p"];
-
     for (const quality of qualityPriority) {
       const found = formats.find(f => f.quality === quality);
       if (found) return found;
     }
-
     return formats[0];
   };
 
@@ -121,8 +115,7 @@ export default function DownloadPanel() {
     showToast("Download started!", "success");
 
     try {
-      await postStartDownload(url, item.id, selectedMode, selectedQuality); // but postStartDownload must send format_id
-
+      await postStartDownload(url, item.id, selectedMode, selectedQuality);
       const ws = new WebSocket(wsUrl(item.id));
 
       ws.onmessage = (event) => {
@@ -133,7 +126,6 @@ export default function DownloadPanel() {
           const progress = data.total_bytes
             ? Math.round((data.downloaded_bytes / data.total_bytes) * 100)
             : 0;
-
           const etaSeconds = data.eta ? Math.round(data.eta) : 0;
           const etaDisplay = etaSeconds > 0 ? `${etaSeconds}s` : "Calculating...";
 

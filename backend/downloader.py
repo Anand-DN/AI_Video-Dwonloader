@@ -1,112 +1,110 @@
-# downloader.py
 import threading
+import time
 from pathlib import Path
 from yt_dlp import YoutubeDL
-from urllib.parse import urlparse, parse_qs
 
+def sanitize_filename(title):
+    """Remove characters not allowed in Windows/Linux filenames"""
+    # Remove: \ / : * ? " < > |
+    return ''.join(c for c in title if c not in r'\/:*?"<>|').strip()
 
-def build_ydl_options(out_dir: str, mode: str, format_id: str):
-    """Build yt-dlp configuration based on mode and format."""
-    out_path = str(Path(out_dir) / "%(title)s.%(ext)s")
-
-    opts = {
-        "outtmpl": out_path,
-        "quiet": False,
-        "no_warnings": False,
-        "progress_hooks": [],
-        "nocheckcertificate": True,
-    }
-
-    if mode == "audio":
-        opts["format"] = format_id or "bestaudio"
-        opts["postprocessors"] = [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ]
-    else:
-        opts["format"] = format_id or "bestvideo+bestaudio/best"
-        opts["merge_output_format"] = "mp4"
-
-    return opts
-
-
-def run_download(url: str, out_dir: str, mode: str, format_id: str,
-                 progress_callback, cancel_event: threading.Event):
-    """Run actual download with yt-dlp and send progress callbacks."""
-    out_path = Path(out_dir)
-    out_path.mkdir(exist_ok=True, parents=True)
-
-    def hook(data):
-        if cancel_event.is_set():
-            raise Exception("Download cancelled by user")
-
-        status = data.get("status")
-
-        if status == "downloading":
-            progress_callback({
-                "status": "downloading",
-                "downloaded_bytes": data.get("downloaded_bytes", 0),
-                "total_bytes": data.get("total_bytes")
-                    or data.get("total_bytes_estimate", 0),
-                "speed": data.get("speed", 0),
-                "eta": data.get("eta", 0),
-            })
-
-        elif status == "finished":
-            progress_callback({"status": "finished_file"})
-
-    opts = build_ydl_options(out_dir, mode, format_id)
-    opts["progress_hooks"].append(hook)
-
-    with YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        title = info.get("title") or "video"
-        ext = info.get("ext") or ("mp3" if mode == "audio" else "mp4")
-
-        final_path = str(out_path / f"{title}.{ext}")
-
-        progress_callback({
-            "status": "finished",
-            "result": {"final_path": final_path}
-        })
-
-        return {"final_path": final_path}
-
-
-def run_download_in_thread(url: str, out_dir: str, mode: str, format_id: str,
-                           progress_callback, cancel_event: threading.Event):
-    """Run downloader in a separate thread for async behavior."""
-
-    def runner():
+def run_download_in_thread(url, download_dir, mode, format_id, progress_callback, cancel_event):
+    def download_task():
         try:
-            progress_callback({"status": "started"})
-            run_download(url, out_dir, mode, format_id, progress_callback, cancel_event)
+            output_template = str(Path(download_dir) / "%(title)s.%(ext)s")
+            
+            ydl_opts = {
+                'format': format_id if mode == 'video' else 'bestaudio/best',
+                'outtmpl': output_template,
+                'noplaylist': True,
+                'progress_hooks': [lambda d: progress_hook(d, progress_callback, cancel_event)],
+                'quiet': True,
+                'no_warnings': True,
+                'nocheckcertificate': True,
+                'windowsfilenames': True,  # Let yt-dlp handle sanitization
+                'retries': 3,
+            }
+            
+            if mode == 'audio':
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }]
+            
+            with YoutubeDL(ydl_opts) as ydl:
+                # Extract info first
+                info = ydl.extract_info(url, download=False)
+                
+                if cancel_event.is_set():
+                    progress_callback({'status': 'cancelled'})
+                    return
+                
+                # Get the sanitized title (what yt-dlp will actually use)
+                original_title = info.get('title', 'Unknown')
+                sanitized_title = ydl.prepare_filename(info)  # This gives us the actual filename yt-dlp will use
+                sanitized_title = Path(sanitized_title).stem  # Remove extension
+                
+                # Download
+                ydl.download([url])
+                
+                # Build the actual final path
+                if mode == 'audio':
+                    ext = 'mp3'
+                else:
+                    ext = info.get('ext', 'mp4')
+                
+                # Use the sanitized title
+                final_filename = f"{sanitized_title}.{ext}"
+                final_path = str(Path(download_dir) / final_filename)
+                
+                print(f"✅ Download complete: {final_path}")
+                
+                progress_callback({
+                    'status': 'finished',
+                    'result': {
+                        'final_path': final_path,
+                        'filename': final_filename
+                    }
+                })
+                
         except Exception as e:
-            progress_callback({"status": "error", "error": str(e)})
-
-    thread = threading.Thread(target=runner, daemon=True)
+            print(f"❌ Download error: {e}")
+            progress_callback({
+                'status': 'error',
+                'error': str(e)
+            })
+    
+    thread = threading.Thread(target=download_task, daemon=True)
     thread.start()
     return thread
 
+def progress_hook(d, callback, cancel_event):
+    if cancel_event.is_set():
+        raise Exception("Download cancelled")
+    
+    if d['status'] == 'downloading':
+        total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+        downloaded = d.get('downloaded_bytes', 0)
+        speed = d.get('speed', 0)
+        eta = d.get('eta', 0)
+        callback({
+            'status': 'downloading',
+            'downloaded_bytes': downloaded,
+            'total_bytes': total,
+            'speed': speed,
+            'eta': eta,
+        })
+    elif d['status'] == 'finished':
+        callback({
+            'status': 'processing',
+            'message': 'Processing file...'
+        })
 
-def get_thumbnail_for_url(url: str) -> str:
-    """Extract YouTube video ID from URL and convert to thumbnail."""
+def get_thumbnail_for_url(url):
     try:
-        parsed = urlparse(url)
-
-        if "youtu" in (parsed.hostname or ""):
-            if "youtu.be" in parsed.hostname:
-                video_id = parsed.path.lstrip("/")
-            else:
-                video_id = parse_qs(parsed.query).get("v", [None])[0]
-
-            if video_id:
-                return f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
-
+        with YoutubeDL({'quiet': True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info.get('thumbnail', '')
     except Exception:
-        pass
-
-    return ""
+        return ''

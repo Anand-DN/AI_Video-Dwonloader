@@ -13,6 +13,11 @@ export default function TorrentPanel() {
     const showToast = (message, type = 'info', duration = 3000, actions = null) => {
         const id = Date.now();
         setToasts(prev => [...prev, { id, message, type, duration, actions }]);
+
+        // Auto-remove after duration
+        setTimeout(() => {
+            removeToast(id);
+        }, duration);
     };
 
     const removeToast = (id) => {
@@ -26,7 +31,6 @@ export default function TorrentPanel() {
         }
 
         const torrentId = Date.now().toString();
-
         const item = {
             id: torrentId,
             magnetLink,
@@ -41,7 +45,7 @@ export default function TorrentPanel() {
         };
 
         dispatch({ type: "ADD_TORRENT", item });
-        showToast("Torrent added!", "success");
+        showToast("Torrent added!", "success", 2000);
         setLoading(true);
 
         try {
@@ -70,7 +74,8 @@ export default function TorrentPanel() {
                             numFiles: data.num_files,
                         },
                     });
-                    showToast(`Metadata received: ${data.name}`, "info", 3000);
+                    showToast(`Metadata received: ${data.name}`, "info", 2000);
+
                 } else if (data.status === "downloading") {
                     // Format ETA
                     const etaSeconds = data.eta || 0;
@@ -102,6 +107,7 @@ export default function TorrentPanel() {
                             eta: etaDisplay,
                         },
                     });
+
                 } else if (data.status === "finished") {
                     // Remove from active torrents
                     dispatch({ type: "REMOVE_TORRENT", id: torrentId });
@@ -175,9 +181,13 @@ export default function TorrentPanel() {
                             }
                         ]
                     );
+
                 } else if (data.status === "cancelled") {
                     dispatch({ type: "REMOVE_TORRENT", id: torrentId });
-                    showToast("Torrent cancelled", "info");
+
+                } else if (data.status === "error") {
+                    dispatch({ type: "REMOVE_TORRENT", id: torrentId });
+                    showToast(`Error: ${data.error}`, "error", 5000);
                 }
             };
 
@@ -187,6 +197,7 @@ export default function TorrentPanel() {
             };
 
             setMagnetLink("");
+
         } catch (error) {
             console.error("Error adding torrent:", error);
             showToast("Failed to add torrent", "error");
@@ -202,10 +213,16 @@ export default function TorrentPanel() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ id: torrentId }),
             });
-            showToast("Torrent cancelled", "info");
+
+            // Remove from UI immediately
+            dispatch({ type: "REMOVE_TORRENT", id: torrentId });
+            showToast("Torrent cancelled", "info", 2000);
+
         } catch (error) {
             console.error("Cancel error:", error);
-            showToast("Failed to cancel torrent", "error");
+            // Still remove from UI
+            dispatch({ type: "REMOVE_TORRENT", id: torrentId });
+            showToast("Torrent cancelled", "info", 2000);
         }
     };
 
@@ -241,7 +258,7 @@ export default function TorrentPanel() {
 
                 {activeTorrents.length > 0 && (
                     <div className="active-torrents">
-                        <h3>Active Torrents</h3>
+                        <h3>📥 Active Torrents</h3>
                         {activeTorrents.map((torrent) => (
                             <TorrentItem
                                 key={torrent.id}
@@ -257,13 +274,11 @@ export default function TorrentPanel() {
 }
 
 function TorrentItem({ torrent, onCancel }) {
-    const formatBytes = (bytes) => {
-        if (!bytes) return "Unknown";
+    const formatSize = (bytes) => {
+        if (!bytes) return "";
         const gb = bytes / (1024 * 1024 * 1024);
         const mb = bytes / (1024 * 1024);
-
-        if (gb >= 1) return `${gb.toFixed(2)} GB`;
-        return `${mb.toFixed(0)} MB`;
+        return gb >= 1 ? `${gb.toFixed(2)} GB` : `${mb.toFixed(0)} MB`;
     };
 
     return (
@@ -271,14 +286,14 @@ function TorrentItem({ torrent, onCancel }) {
             <div className="torrent-info">
                 <div className="torrent-name">{torrent.filename}</div>
                 {torrent.totalSize && (
-                    <div className="torrent-size">Size: {formatBytes(torrent.totalSize)}</div>
+                    <div className="torrent-size">{formatSize(torrent.totalSize)}</div>
                 )}
                 <div className="torrent-stats">
                     <span>↓ {torrent.downloadRate}</span>
                     <span>↑ {torrent.uploadRate}</span>
                     <span>Peers: {torrent.peers}</span>
                     <span>Seeds: {torrent.seeds}</span>
-                    {torrent.eta && <span className="eta-badge">⏱ ETA: {torrent.eta}</span>}
+                    <span className="eta-badge">⏱ ETA: {torrent.eta}</span>
                 </div>
             </div>
 
@@ -289,7 +304,7 @@ function TorrentItem({ torrent, onCancel }) {
                         style={{ width: `${torrent.progress}%` }}
                     />
                 </div>
-                <span className="progress-text">{torrent.progress}%</span>
+                <div className="progress-text">{torrent.progress}%</div>
             </div>
 
             <button onClick={onCancel} className="cancel-torrent-btn">

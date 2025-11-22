@@ -327,3 +327,71 @@
         justify-content: center;
     }
 }
+
+.toast-box {
+    background: var(--card);
+    backdrop-filter: blur(8px);
+    padding: 14px 18px;
+    border-radius: 12px;
+    border: 1px solid var(--glass-border);
+    width: 260px;
+    animation: slideIn 0.35s ease, fadeIn 0.35s ease;
+}
+
+.toast-title {
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.toast-sub {
+    font-size: 13px;
+    opacity: 0.75;
+    margin-bottom: 10px;
+}
+
+.toast-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.toast-btn {
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    border: none;
+    text-decoration: none;
+}
+
+.toast-btn.primary {
+    background: linear-gradient(90deg, var(--accent-a), var(--accent-b));
+    color: white;
+}
+
+.toast-btn.secondary {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--muted);
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(40px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
